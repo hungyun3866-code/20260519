@@ -3,7 +3,7 @@ let handpose;
 let predictions = [];
 
 // 遊戲狀態變數
-let gameState = "START"; // START, COUNTDOWN, RESULT
+let gameState = "START"; // START: 提示伸手, COUNTDOWN: 鎖定倒數, RESULT: 顯示勝負
 let timerStart = 0;
 let playerGesture = "";
 let computerGesture = "";
@@ -17,12 +17,12 @@ function setup() {
   // 初始化視訊鏡頭
   video = createCapture(VIDEO);
   video.size(640, 480);
-  video.hide(); // 隱藏原本的 HTML video 標籤，我們要在 canvas 上自己畫
+  video.hide(); // 隱藏原本原生 HTML 的視訊畫面
 
-  // 初始化 ml5.js 的 Handpose 辨識
+  // 初始化 ml5.js 的 Handpose 模型
   handpose = ml5.handpose(video, modelReady);
   
-  // 當偵測到手部數據時，更新 predictions 陣列
+  // 當辨識到手部數據時，更新 predictions 陣列
   handpose.on("predict", results => {
     predictions = results;
   });
@@ -33,26 +33,25 @@ function modelReady() {
 }
 
 function draw() {
-  // --- 1. 處理相機畫面 (左右翻轉) ---
-  // 先將畫布座標系統移動到最右邊，然後把 X 軸縮放改為 -1 (水平反轉)
-  push(); 
+  // --- 1. 處理相機畫面 (左右翻轉鏡像) ---
+  push(); // 保存當前坐標狀態
   translate(width, 0);
-  scale(-1, 1);
-  image(video, 0, 0, width, height);
-  
-  // 如果有偵測到手，在反轉的座標系下畫出骨架（這樣綠色線條才貼手）
-  if (predictions.length > 0) {
-    drawSkeleton(predictions[0]);
-  }
-  pop(); // 還原畫布座標系統，文字才不會反
+  scale(-1, 1); // 水平水平反轉 (scaleX = -1)
+  image(video, 0, 0, width, height); // 畫出水平反轉的鏡像畫面
+  pop(); // 還原坐標系統，否則文字會反過來
 
-  // --- 2. 獲取當前手勢辨識結果 (不畫在畫面上，只做邏輯判斷) ---
+  // --- 2. 畫出骨架線條 (需手動處理坐標翻轉) ---
+  if (predictions.length > 0) {
+    drawSkeletonMirrored(predictions[0]); // 關鍵改動：手動處理坐標的繪製
+  }
+
+  // --- 3. 獲取手勢結果 (不畫在畫面上，只做邏輯判斷) ---
   let currentGesture = "未知";
   if (predictions.length > 0) {
     currentGesture = judgeGesture(predictions[0].landmarks);
   }
 
-  // --- 3. 畫面 UI 文字 (在還原後的座標系繪製) ---
+  // --- 4. 遊戲核心邏輯與文字顯示 (在還原後的坐標系繪製) ---
   drawScoreboard(); // 畫計分板
 
   let currentTime = millis();
@@ -60,9 +59,9 @@ function draw() {
   if (gameState === "START") {
     // 提示伸手
     drawCenterText("請將手伸入畫面", 32, color(255));
-    drawGestureGuide();
+    drawCenterText("比出 ✊ 石頭、🖐 布、✌ 剪刀", 20, color(200), 50);
 
-    // 如果偵測到有效手勢，進入倒數
+    // 如果偵測到有效手勢，鎖定進入倒數
     if (currentGesture === "石頭" || currentGesture === "剪刀" || currentGesture === "布") {
       gameState = "COUNTDOWN";
       timerStart = currentTime;
@@ -73,19 +72,19 @@ function draw() {
     let countdown = 3 - floor(elapsed);
 
     if (countdown > 0) {
-      // 顯示大大的黃色倒數數字 (與影片一樣)
+      // 顯示黃色大數字倒數 (對應影片中效果)
       drawCenterText(countdown, 90, color(255, 215, 0)); 
       if (currentGesture !== "未知") {
         drawLeftText(`你出：${currentGesture}`, 24, color(255), 50);
       }
     } else {
-      // 倒數結束，判定輸贏
+      // 3 秒倒數結束，判定輸贏
       playerGesture = currentGesture;
       if (playerGesture !== "未知") {
         let options = ["石頭", "剪刀", "布"];
         computerGesture = random(options);
 
-        // 輸贏邏輯
+        // 輸贏邏輯判斷
         if (playerGesture === computerGesture) {
           resultText = "平手！";
         } else if (
@@ -108,7 +107,7 @@ function draw() {
     }
 
   } else if (gameState === "RESULT") {
-    // 顯示結果
+    // 顯示結果 (贏顯示綠色，輸顯示紅色)
     let textColor = resultText.includes("贏") ? color(0, 255, 0) : (resultText.includes("輸") ? color(255, 0, 0) : color(255));
     drawCenterText(resultText, 48, textColor, -40);
     drawCenterText(`你：${playerGesture}  vs  電腦：${computerGesture}`, 24, color(255), 30);
@@ -120,20 +119,22 @@ function draw() {
   }
 }
 
-// --- 輔助函式：畫出綠色骨架 (注意：ml5 landmarks 不需要手動映射，直接畫就好，因為已經 scale 了) ---
-function drawSkeleton(hand) {
-  stroke(0, 255, 0); // 綠色
-  strokeWeight(2);
+// --- 輔助函式：畫出綠色骨架 (關鍵！手動處理每個點的水平翻轉映射) ---
+function drawSkeletonMirrored(hand) {
+  stroke(0, 255, 0); // 影片中看到的綠色
+  strokeWeight(2.5);
   fill(0, 255, 0);
 
-  // 畫出關鍵點
+  // 畫出關鍵點 ( ellipse)
   for (let i = 0; i < hand.landmarks.length; i++) {
-    let x = hand.landmarks[i][0];
+    // 【核心改動】將原本的 X 坐標映射到水平反轉後的對應位置
+    // 反轉坐標 = 畫布寬度 - 原坐標
+    let x = width - hand.landmarks[i][0];
     let y = hand.landmarks[i][1];
-    ellipse(x, y, 6, 6);
+    ellipse(x, y, 7, 7);
   }
 
-  // 畫骨架連線
+  // 骨架連線
   let fingers = [
     [0,1,2,3,4],       // 大拇指
     [0,5,6,7,8],       // 食指
@@ -146,7 +147,8 @@ function drawSkeleton(hand) {
   for (let f of fingers) {
     beginShape();
     for (let id of f) {
-      let x = hand.landmarks[id][0];
+      // 【核心改動】連線坐標也必須反轉映射
+      let x = width - hand.landmarks[id][0];
       let y = hand.landmarks[id][1];
       vertex(x, y);
     }
@@ -156,6 +158,7 @@ function drawSkeleton(hand) {
 
 // --- 手勢判斷演算法 (維持不變) ---
 function judgeGesture(landmarks) {
+  // 指尖坐標 Y 小於指根坐標 Y 代表伸直 (注意：網頁 Y 軸朝下)
   let indexIsOpen = landmarks[8][1] < landmarks[6][1];
   let middleIsOpen = landmarks[12][1] < landmarks[10][1];
   let ringIsOpen = landmarks[16][1] < landmarks[14][1];
@@ -171,31 +174,32 @@ function judgeGesture(landmarks) {
   return "未知";
 }
 
-// --- 畫計分板 ---
+// --- 畫右上角半透明黑框計分板 (影片右上角效果) ---
 function drawScoreboard() {
-  fill(0, 0, 0, 150); // 半透明黑底
+  fill(0, 0, 0, 160); // 半透明黑色
   noStroke();
-  rect(width - 160, 10, 150, 40, 5); // 右上角黑框
+  rect(width - 160, 15, 145, 40, 8); // 右上角黑框
   
-  // 勝場數
+  // 勝場場數 (✔ 顯示綠色)
   fill(0, 255, 0);
   textSize(16);
   textAlign(LEFT, CENTER);
-  text(`✔ ${winCount} 勝`, width - 145, 30);
+  text(`✔ ${winCount} 勝`, width - 145, 35);
   
-  // 敗場數
-  fill(255, 0, 0);
-  text(`❌ ${loseCount} 敗`, width - 85, 30);
+  // 敗場場數 (❌ 顯示紅色)
+  fill(255, 50, 50);
+  text(`❌ ${loseCount} 敗`, width - 85, 35);
 }
 
-// --- 畫置中文字的輔助函式 (加上黑色陰影讓字體更清晰) ---
+// --- 畫置中文字的輔助函式 (加上黑色陰影防背景蓋住，更清晰) ---
 function drawCenterText(txt, size, col, yOffset = 0) {
   textAlign(CENTER, CENTER);
   textSize(size);
-  textStyle(BOLD);
+  textStyle(BOLD); // 粗體文字
+  noStroke();
   
   // 文字陰影 (黑色)
-  fill(0, 0, 0, 200); 
+  fill(0, 0, 0, 220); 
   text(txt, width / 2 + 2, height / 2 + yOffset + 2);
   
   // 文字主體
@@ -203,16 +207,12 @@ function drawCenterText(txt, size, col, yOffset = 0) {
   text(txt, width / 2, height / 2 + yOffset);
 }
 
-// --- 畫左上角文字 ---
+// --- 畫左上角你當前出拳文字 ---
 function drawLeftText(txt, size, col, y) {
   textAlign(LEFT, TOP);
   textSize(size);
   fill(col);
   textStyle(BOLD);
+  noStroke();
   text(txt, 10, y);
-}
-
-// --- 下方手勢提示圖標 ---
-function drawGestureGuide() {
-  drawCenterText("比出 ✊ 石頭、🖐 布、✌ 剪刀", 20, color(200), 50);
 }
