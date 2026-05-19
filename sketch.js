@@ -1,29 +1,26 @@
 let video;
 let handPose;
 let hands = [];
-let isModelReady = false; // 用來標記 AI 是不是載入好了
+let isModelReady = false;
+
+function preload() {
+  // 初始化 ml5.handPose（自帶鏡像翻轉）
+  handPose = ml5.handPose({ flipped: true });
+}
 
 function setup() {
   createCanvas(640, 480);
   
-  // 1. 先強迫瀏覽器開啟相機（最穩定的寫法，確保鏡頭絕對會亮燈）
-  video = createCapture(VIDEO, { flipped: true }, function(stream) {
-    console.log("相機成功啟動！開始載入 AI 模型...");
-    
-    // 2. 鏡頭確定拿到權限並開啟後，才初始化 ml5.handPose
-    handPose = ml5.handPose({ flipped: true }, modelLoaded);
+  // 修正核心：改用最標準的 VIDEO 常數，並透過 callback 確保相機啟動後才執行偵測
+  video = createCapture(VIDEO, function(stream) {
+    console.log("相機成功啟動，串流獲取完畢！");
+    // 確定相機拿到畫面後，才啟動 AI 偵測
+    handPose.detectStart(video, gotHands);
+    isModelReady = true;
   });
   
   video.size(640, 480);
   video.hide();
-}
-
-function modelLoaded() {
-  console.log("AI 模型載入成功，開始偵測手勢！");
-  isModelReady = true;
-  
-  // 3. 模型準備好後，正式對準視訊畫面開始偵測
-  handPose.detectStart(video, gotHands);
 }
 
 function gotHands(results) {
@@ -31,14 +28,14 @@ function gotHands(results) {
 }
 
 function draw() {
-  // 畫出視訊背景（如果相機開了就會立刻看到自己）
+  // 畫出視訊背景
   image(video, 0, 0, width, height);
 
   // 實時手勢解析
   let currentGesture = "未知";
   
   if (hands && hands.length > 0) {
-    let hand = hands[0]; // 抓畫面中的第一隻手
+    let hand = hands[0]; 
     if (hand.confidence > 0.2) { 
       drawSkeleton(hand.keypoints); // 畫出綠色骨架
       currentGesture = judgeGesture(hand.keypoints); // 計算出拳
@@ -48,17 +45,16 @@ function draw() {
   // 渲染計分板
   drawScoreboard();
 
-  // 如果模型還沒載入完，在畫面上給個提示，但不會卡死畫面
+  // 狀態提示
   if (!isModelReady) {
-    drawOverlayText("AI 模型初始中...", 110, 35, 18, color(255, 200, 0), LEFT);
+    drawOverlayText("相機或 AI 模型初始化中...", 150, 35, 18, color(255, 200, 0), LEFT);
   }
 
-  // 遊戲核心邏輯 (與你的原版邏輯完全對接)
+  // 執行遊戲流程
   gameStateMachine(currentGesture);
 }
 
-// === 以下是原本的猜拳遊戲邏輯、骨架繪製與手勢判定，維持不變 ===
-
+// === 猜拳遊戲狀態機 (維持你的原版邏輯) ===
 let gameState = "START"; 
 let timerStart = 0;
 let playerGesture = "未知";
@@ -127,6 +123,7 @@ function gameStateMachine(currentGesture) {
   }
 }
 
+// 繪製綠色骨架
 function drawSkeleton(keypoints) {
   stroke(0, 255, 0);
   strokeWeight(2.5);
@@ -154,6 +151,7 @@ function drawSkeleton(keypoints) {
   }
 }
 
+// 判斷手勢
 function judgeGesture(keypoints) {
   let indexIsOpen = keypoints[8].y < keypoints[6].y;
   let middleIsOpen = keypoints[12].y < keypoints[10].y;
