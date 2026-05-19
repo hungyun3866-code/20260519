@@ -1,6 +1,7 @@
-let video;
-let handpose;
-let predictions = [];
+let videoElement;
+let handsDetector;
+let cameraHelper;
+let resultsData = null; // 用來儲存 MediaPipe 傳回的最新手勢資料
 
 // 遊戲狀態變數
 let gameState = "START"; 
@@ -14,47 +15,66 @@ let loseCount = 0;
 function setup() {
   createCanvas(640, 480);
   
-  // 關鍵改動：確保鏡頭串流完全建立後（觸發 Callback），才初始化 handpose
-  video = createCapture(VIDEO, function(stream) {
-    console.log("鏡頭串流建立成功，開始載入 AI 模型...");
-    handpose = ml5.handpose(video, modelReady);
-    
-    // 監聽辨識結果
-    handpose.on("predict", results => {
-      predictions = results;
-    });
+  // 1. 建立一個隱藏的 HTML video 標籤供 MediaPipe 讀取
+  videoElement = createCapture(VIDEO).elt;
+  videoElement.size = { width: 640, height: 480 };
+  // 隱藏原生視訊元件
+  document.getElementsByTagName('video')[0].style.display = 'none';
+
+  // 2. 初始化 MediaPipe Hands
+  handsDetector = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
   });
-  
-  video.size(640, 480);
-  video.hide(); 
+
+  handsDetector.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.5
+  });
+
+  // 當 MediaPipe 算完特徵點後的回呼函式 (Callback)
+  handsDetector.onResults(onHandsResults);
+
+  // 3. 啟動 MediaPipe Camera 輔助工具來驅動鏡頭
+  cameraHelper = new Camera(videoElement, {
+    onFrame: async () => {
+      await handsDetector.send({ image: videoElement });
+    },
+    width: 640,
+    height: 480
+  });
+  cameraHelper.start();
 }
 
-function modelReady() {
-  console.log("AI 手勢辨識模型已準備就緒！");
+// 接收 MediaPipe 的偵測結果
+function onHandsResults(results) {
+  resultsData = results;
 }
 
 function draw() {
-  // 1. 鏡像翻轉視訊畫面
+  // 1. 鏡像翻轉繪製視訊畫面
   translate(width, 0);
   scale(-1, 1);
-  image(video, 0, 0, width, height);
+  // 直接將 HTML 視訊影格畫在 p5 的畫布上
+  drawingContext.drawImage(videoElement, 0, 0, width, height);
   
-  // 2. 還原座標系
+  // 2. 還原座標系避免文字顛倒
   translate(width, 0);
   scale(-1, 1);
 
-  // 3. 取得當前手勢並繪製骨架
+  // 3. 解析手勢並畫出綠色骨架
   let currentGesture = "未知";
-  if (predictions && predictions.length > 0) {
-    let hand = predictions[0];
-    drawKeypoints(hand); 
-    currentGesture = judgeGesture(hand.landmarks);
+  if (resultsData && resultsData.multiHandLandmarks && resultsData.multiHandLandmarks.length > 0) {
+    let landmarks = resultsData.multiHandLandmarks[0];
+    drawKeypoints(landmarks);
+    currentGesture = judgeGesture(landmarks);
   }
 
-  // 4. 渲染右上角計分板
+  // 4. 繪製計分板
   drawScoreboard();
 
-  // 5. 遊戲流程控制
+  // 5. 遊戲流程控制 (與之前邏輯相同)
   let currentTime = millis();
 
   if (gameState === "START") {
@@ -114,20 +134,20 @@ function draw() {
   }
 }
 
-// 畫出綠色手部關節與骨架連線
-function drawKeypoints(hand) {
-  if (!hand || !hand.landmarks) return;
-  
+// 畫出原生 MediaPipe 網格
+function drawKeypoints(landmarks) {
   stroke(0, 255, 0);
   strokeWeight(2);
   fill(0, 255, 0);
 
-  for (let i = 0; i < hand.landmarks.length; i++) {
-    let x = width - hand.landmarks[i][0];
-    let y = hand.landmarks[i][1];
+  // 畫出 21 個點（注意：原生座標是 0~1 的比例，且要手動鏡像處理）
+  for (let i = 0; i < landmarks.length; i++) {
+    let x = (1 - landmarks[i].x) * width; // 1 - x 是因為畫面被我們水平翻轉了
+    let y = landmarks[i].y * height;
     ellipse(x, y, 6, 6);
   }
 
+  // 骨架連線
   let fingers = [
     [0, 1, 2, 3, 4],     
     [0, 5, 6, 7, 8],     
@@ -140,24 +160,20 @@ function drawKeypoints(hand) {
   for (let f of fingers) {
     beginShape();
     for (let id of f) {
-      if (hand.landmarks[id]) {
-        let x = width - hand.landmarks[id][0];
-        let y = hand.landmarks[id][1];
-        vertex(x, y);
-      }
+      let x = (1 - landmarks[id].x) * width;
+      let y = landmarks[id].y * height;
+      vertex(x, y);
     }
     endShape();
   }
 }
 
-// 手勢判斷
+// 手勢演算法 (原生 MediaPipe 的物件屬性是 .x 和 .y)
 function judgeGesture(landmarks) {
-  if (!landmarks) return "未知";
-  
-  let indexIsOpen = landmarks[8][1] < landmarks[6][1];
-  let middleIsOpen = landmarks[12][1] < landmarks[10][1];
-  let ringIsOpen = landmarks[16][1] < landmarks[14][1];
-  let pinkyIsOpen = landmarks[20][1] < landmarks[18][1];
+  let indexIsOpen = landmarks[8].y < landmarks[6].y;
+  let middleIsOpen = landmarks[12].y < landmarks[10].y;
+  let ringIsOpen = landmarks[16].y < landmarks[14].y;
+  let pinkyIsOpen = landmarks[20].y < landmarks[18].y;
 
   if (!indexIsOpen && !middleIsOpen && !ringIsOpen && !pinkyIsOpen) {
     return "石頭";
@@ -169,7 +185,6 @@ function judgeGesture(landmarks) {
   return "未知";
 }
 
-// 計分板
 function drawScoreboard() {
   fill(0, 0, 0, 160);
   noStroke();
@@ -186,7 +201,6 @@ function drawScoreboard() {
   text(`❌ ${loseCount} 敗`, width - 85, 35);
 }
 
-// 文字渲染
 function drawOverlayText(txt, x, y, size, col, align = CENTER) {
   textAlign(align, CENTER);
   textSize(size);
