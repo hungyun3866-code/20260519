@@ -1,7 +1,7 @@
 let videoElement;
 let handsDetector;
-let cameraHelper;
-let resultsData = null; // 用來儲存 MediaPipe 傳回的最新手勢資料
+let resultsData = null;
+let modelLoaded = false;
 
 // 遊戲狀態變數
 let gameState = "START"; 
@@ -15,66 +15,88 @@ let loseCount = 0;
 function setup() {
   createCanvas(640, 480);
   
-  // 1. 建立一個隱藏的 HTML video 標籤供 MediaPipe 讀取
-  videoElement = createCapture(VIDEO).elt;
-  videoElement.size = { width: 640, height: 480 };
-  // 隱藏原生視訊元件
-  document.getElementsByTagName('video')[0].style.display = 'none';
-
-  // 2. 初始化 MediaPipe Hands
-  handsDetector = new Hands({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  // 1. 取得 p5 視訊鏡頭
+  videoElement = createCapture(VIDEO, function(stream) {
+    console.log("1. p5 鏡頭獲取成功，開始初始化 MediaPipe...");
+    initMediaPipe();
   });
-
-  handsDetector.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.5
-  });
-
-  // 當 MediaPipe 算完特徵點後的回呼函式 (Callback)
-  handsDetector.onResults(onHandsResults);
-
-  // 3. 啟動 MediaPipe Camera 輔助工具來驅動鏡頭
-  cameraHelper = new Camera(videoElement, {
-    onFrame: async () => {
-      await handsDetector.send({ image: videoElement });
-    },
-    width: 640,
-    height: 480
-  });
-  cameraHelper.start();
+  videoElement.size(640, 480);
+  videoElement.hide(); 
 }
 
-// 接收 MediaPipe 的偵測結果
-function onHandsResults(results) {
-  resultsData = results;
+function initMediaPipe() {
+  // 2. 建立 Hands 偵測器 (直接調用全域 window.Hands)
+  try {
+    handsDetector = new window.Hands({
+      locateFile: (file) => {
+        // 使用 cdnjs 穩定的 WASM 資源路徑
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+      }
+    });
+
+    handsDetector.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5, // 稍微調低門檻，更容易抓到手
+      minTrackingConfidence: 0.5
+    });
+
+    // 設定辨識成功後的 Callback
+    handsDetector.onResults((results) => {
+      resultsData = results;
+      if (!modelLoaded) {
+        console.log("3. MediaPipe 成功收到第一組手部數據！AI 運作正常！");
+        modelLoaded = true;
+      }
+    });
+
+    console.log("2. MediaPipe Hands 物件初始化完畢。");
+  } catch (e) {
+    console.error("MediaPipe 初始化失敗，錯誤原因:", e);
+  }
 }
 
 function draw() {
-  // 1. 鏡像翻轉繪製視訊畫面
-  translate(width, 0);
-  scale(-1, 1);
-  // 直接將 HTML 視訊影格畫在 p5 的畫布上
-  drawingContext.drawImage(videoElement, 0, 0, width, height);
-  
-  // 2. 還原座標系避免文字顛倒
-  translate(width, 0);
-  scale(-1, 1);
+  background(50); // 給個底色，沒畫面時比較好分辨
 
-  // 3. 解析手勢並畫出綠色骨架
+  // 1. 檢查鏡頭是否準備好
+  if (videoElement && videoElement.elt.readyState === videoElement.elt.HAVE_ENOUGH_DATA) {
+    // 鏡像翻轉畫視訊
+    translate(width, 0);
+    scale(-1, 1);
+    image(videoElement, 0, 0, width, height);
+    
+    // 主動把當前畫面送給 AI 計算
+    if (handsDetector) {
+      handsDetector.send({ image: videoElement.elt });
+    }
+    
+    // 還原座標系
+    translate(width, 0);
+    scale(-1, 1);
+  } else {
+    // 鏡頭還沒準備好時顯示提示
+    drawOverlayText("等待相機啟動中...", width / 2, height / 2, 24, color(255));
+    return; // 暫停往下執行
+  }
+
+  // 2. 解析手勢並畫出綠色骨架
   let currentGesture = "未知";
   if (resultsData && resultsData.multiHandLandmarks && resultsData.multiHandLandmarks.length > 0) {
     let landmarks = resultsData.multiHandLandmarks[0];
-    drawKeypoints(landmarks);
+    drawKeypoints(landmarks); // 畫線
     currentGesture = judgeGesture(landmarks);
   }
 
-  // 4. 繪製計分板
+  // 3. 繪製計分板
   drawScoreboard();
 
-  // 5. 遊戲流程控制 (與之前邏輯相同)
+  // 4. 遊戲流程控制
+  if (!modelLoaded) {
+    drawOverlayText("AI 模型載入中，請稍候...", width / 2, height / 2, 24, color(255, 200, 0));
+    return;
+  }
+
   let currentTime = millis();
 
   if (gameState === "START") {
@@ -134,20 +156,17 @@ function draw() {
   }
 }
 
-// 畫出原生 MediaPipe 網格
 function drawKeypoints(landmarks) {
   stroke(0, 255, 0);
-  strokeWeight(2);
+  strokeWeight(3); // 稍微加粗線條比較明顯
   fill(0, 255, 0);
 
-  // 畫出 21 個點（注意：原生座標是 0~1 的比例，且要手動鏡像處理）
   for (let i = 0; i < landmarks.length; i++) {
-    let x = (1 - landmarks[i].x) * width; // 1 - x 是因為畫面被我們水平翻轉了
+    let x = (1 - landmarks[i].x) * width; 
     let y = landmarks[i].y * height;
-    ellipse(x, y, 6, 6);
+    ellipse(x, y, 8, 8);
   }
 
-  // 骨架連線
   let fingers = [
     [0, 1, 2, 3, 4],     
     [0, 5, 6, 7, 8],     
@@ -168,7 +187,6 @@ function drawKeypoints(landmarks) {
   }
 }
 
-// 手勢演算法 (原生 MediaPipe 的物件屬性是 .x 和 .y)
 function judgeGesture(landmarks) {
   let indexIsOpen = landmarks[8].y < landmarks[6].y;
   let middleIsOpen = landmarks[12].y < landmarks[10].y;
