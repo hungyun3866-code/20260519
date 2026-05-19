@@ -2,7 +2,7 @@ let videoElement;
 let hands;
 let detectedHands = [];
 
-// === 你原本的所有遊戲流程變數 ===
+// === 遊戲流程控制變數 ===
 let gameState = "START"; // START: 提示伸手, COUNTDOWN: 鎖定倒數, RESULT: 顯示勝負
 let timerStart = 0;
 let playerGesture = "未知";
@@ -31,7 +31,7 @@ function setup() {
     minTrackingConfidence: 0.5
   });
 
-  // 當 MediaPipe 抓到手，無條件把數據傳給 detectedHands
+  // 當 MediaPipe 順利抓到手，無條件把數據傳給 detectedHands
   hands.onResults((results) => {
     if (results.multiHandLandmarks) {
       detectedHands = results.multiHandLandmarks;
@@ -58,25 +58,45 @@ function draw() {
   // 解析當前手勢
   let currentGesture = "未知";
 
-  // 【核心偵測】：只要 MediaPipe 有抓到手，綠色骨架無條件立刻追蹤繪製！
+  // 【即時追蹤】：只要 MediaPipe 有抓到手，綠色骨架無條件立刻追蹤繪製！
   if (detectedHands.length > 0) {
     let handPoints = detectedHands[0];
     
-    // 1. 強制畫出線條（手怎樣，線條就怎樣動）
+    // 強制畫出綠色線條與圓點
     drawMediaPipeSkeleton(handPoints);
     
-    // 2. 即時計算目前的手勢
+    // 即時計算目前的手勢
     currentGesture = judgeMediaPipeGesture(handPoints);
   }
 
   // 繪製右上角計分板
   drawScoreboard();
 
-  // 執行你原本的遊戲流程狀態機
+  // 執行遊戲流程狀態機
   gameStateMachine(currentGesture);
+
+  // 【新增項目】：在最頂端繪製你的個人資訊學號
+  drawStudentInfo();
 }
 
-// === 猜拳遊戲流程狀態機 (完全保留你原本的機制) ===
+// === 頂端學號姓名標示（含黑底防字體被遮擋） ===
+function drawStudentInfo() {
+  // 畫頂端半透明長條黑底
+  fill(0, 0, 0, 140);
+  noStroke();
+  rect(0, 0, width, 40);
+
+  // 寫入個人資訊
+  textSize(16);
+  textStyle(BOLD);
+  textAlign(LEFT, CENTER);
+  
+  // 使用舒服的白色字體
+  fill(255);
+  text("學號：414730860  |  班級：教科一  |  姓名：洪千涵", 20, 20);
+}
+
+// === 猜拳遊戲流程狀態機 ===
 function gameStateMachine(currentGesture) {
   let currentTime = millis();
 
@@ -98,7 +118,7 @@ function gameStateMachine(currentGesture) {
       // 顯示黃色大數字倒數 3、2、1
       drawOverlayText(countdown, width / 2, height / 2, 90, color(255, 215, 0));
       if (currentGesture !== "未知") {
-        drawOverlayText(`鎖定中：${currentGesture}`, 30, 50, 24, color(255), LEFT);
+        drawOverlayText(`鎖定中：${currentGesture}`, 30, 70, 24, color(255), LEFT); // y軸往下移防擋到學號
       }
     } else {
       // 3 秒倒數結束，定勝負
@@ -189,7 +209,6 @@ function drawMediaPipeSkeleton(points) {
 
 // === 完美適配 MediaPipe 點位的手勢判定演算法 ===
 function judgeMediaPipeGesture(points) {
-  // MediaPipe 的 Y 軸也是向下 (0在頂部，1在底部)
   // 指尖的 Y 軸數值小於關節的 Y 軸數值，即代表手指伸直開展
   let indexIsOpen = points[8].y < points[6].y;   // 食指
   let middleIsOpen = points[12].y < points[10].y; // 中指
@@ -210,17 +229,17 @@ function judgeMediaPipeGesture(points) {
 function drawScoreboard() {
   fill(0, 0, 0, 160);
   noStroke();
-  rect(width - 160, 15, 145, 40, 8);
+  rect(width - 160, 50, 145, 40, 8); // 將 Y 軸往下移至 50，防擋到最上方的學號欄
   
   textSize(16);
   textStyle(BOLD);
   textAlign(LEFT, CENTER);
   
   fill(0, 255, 0);
-  text(`✔ ${winCount} 勝`, width - 145, 35);
+  text(`✔ ${winCount} 勝`, width - 145, 70);
   
   fill(255, 50, 50);
-  text(`❌ ${loseCount} 敗`, width - 85, 35);
+  text(`❌ ${loseCount} 敗`, width - 85, 70);
 }
 
 // === 帶有黑色文字陰影效果的 UI 繪製 ===
