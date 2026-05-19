@@ -13,58 +13,57 @@ let winCount = 0;
 let loseCount = 0;
 
 function preload() {
-  // 1. 初始化新版 handPose，完全關閉鏡像 (flipped: false)
-  handPose = ml5.handPose({ flipped: false });
+  // 初始化手勢偵測模型，並啟用內建鏡像翻轉功能
+  handPose = ml5.handPose({ flipped: true });
 }
 
 function setup() {
   createCanvas(640, 480);
   
-  // 2. 建立常規相機，完全關閉鏡像 (flipped: false)
-  video = createCapture(VIDEO, { flipped: false }, function(stream) {
-    console.log("相機啟動成功！");
-    // 相機順利開啟後，正式啟動 AI 連續偵測
+  // 為了手機相容性，使用最乾淨的 VIDEO 常數呼叫相機
+  video = createCapture(VIDEO, function(stream) {
+    console.log("手機相機成功啟動！開始連動 AI 偵測...");
+    
+    // 相機串流確定成功獲取後，才開始捕捉手勢
     handPose.detectStart(video, gotHands);
     isModelReady = true;
   });
   
   video.size(640, 480);
-  video.hide();
+  video.hide(); // 隱藏原本 html 產生的生硬 video 標籤
 }
 
 function gotHands(results) {
-  // 將偵測結果存入 hands 陣列
   hands = results;
 }
 
 function draw() {
-  // 3. 正常畫出相機畫面（非鏡像，左邊就是左邊）
+  // 1. 畫出翻轉好的相機視訊畫面作為背景
   image(video, 0, 0, width, height);
 
-  // 4. 實時手勢解析
+  // 2. 實時手勢解析
   let currentGesture = "未知";
-  
-  // 確保 AI 有抓到手部數據
   if (hands && hands.length > 0) {
-    let hand = hands[0]; // 抓取畫面中的第一隻手
-    if (hand.confidence > 0.2) { // 信心門檻，手伸進來就秒抓
-      drawSkeleton(hand.keypoints); // 畫出綠色骨架
-      currentGesture = judgeGesture(hand.keypoints); // 計算出拳
+    let hand = hands[0]; // 鎖定畫面中第一隻出現的手
+    if (hand.confidence > 0.25) { // 稍微降低門檻，讓手機更好抓取
+      drawSkeleton(hand.keypoints); // 畫出綠色網格與關節點
+      currentGesture = judgeGesture(hand.keypoints); // 計算目前比出的拳法
     }
   }
 
-  // 5. 繪製右上角計分板與狀態
+  // 3. 繪製右上角計分板
   drawScoreboard();
 
+  // 4. 頂部狀態提示（AI 還沒準備好時顯示）
   if (!isModelReady) {
-    drawOverlayText("相機或 AI 初始化中...", 150, 35, 18, color(255, 200, 0), LEFT);
+    drawOverlayText("相機與 AI 初始化中...", 150, 35, 18, color(255, 200, 0), LEFT);
   }
 
-  // 6. 執行遊戲流程
+  // 5. 執行遊戲狀態機
   gameStateMachine(currentGesture);
 }
 
-// === 猜拳遊戲流程狀態機 ===
+// === 猜拳遊戲流程控制中心 ===
 function gameStateMachine(currentGesture) {
   let currentTime = millis();
 
@@ -72,7 +71,7 @@ function gameStateMachine(currentGesture) {
     drawOverlayText("請將手伸入畫面", width / 2, height / 2, 32, color(255));
     drawOverlayText("比出 ✊ 石頭、🖐 布、✌ 剪刀", width / 2, height / 2 + 50, 20, color(200));
 
-    // 只要偵測到有效手勢，立刻鎖定並觸發倒數
+    // 當玩家比出有效手勢時，立即鎖定並進入倒數
     if (currentGesture === "石頭" || currentGesture === "剪刀" || currentGesture === "布") {
       gameState = "COUNTDOWN";
       timerStart = currentTime;
@@ -83,20 +82,20 @@ function gameStateMachine(currentGesture) {
     let countdown = 3 - floor(elapsed);
 
     if (countdown > 0) {
-      // 顯示醒目的黃色大數字倒數 3、2、1
+      // 畫出醒目的黃色大倒數數字
       drawOverlayText(countdown, width / 2, height / 2, 90, color(255, 215, 0));
       if (currentGesture !== "未知") {
         drawOverlayText(`鎖定中：${currentGesture}`, 30, 50, 24, color(255), LEFT);
       }
     } else {
-      // 3 秒時間到，判定最終手勢並隨機出拳
+      // 3 秒倒數結束，定勝負
       playerGesture = currentGesture;
       
       if (playerGesture !== "未知") {
         let options = ["石頭", "剪刀", "布"];
         computerGesture = random(options);
 
-        // 勝負邏輯
+        // 勝負規則判定
         if (playerGesture === computerGesture) {
           resultText = "平手！";
         } else if (
@@ -119,30 +118,31 @@ function gameStateMachine(currentGesture) {
     }
 
   } else if (gameState === "RESULT") {
+    // 根據勝負動態切換文字顏色
     let textColor = resultText.includes("贏") ? color(0, 255, 0) : (resultText.includes("輸") ? color(255, 0, 0) : color(255));
     
     drawOverlayText(resultText, width / 2, height / 2 - 40, 48, textColor);
     drawOverlayText(`你：${playerGesture}  vs  電腦：${computerGesture}`, width / 2, height / 2 + 30, 24, color(255));
 
-    // 結果停留 3 秒後重啟新局
+    // 結果畫面停留 3 秒後自動返回下一局
     if ((currentTime - timerStart) / 1000 > 3) {
       gameState = "START";
     }
   }
 }
 
-// === 繪製綠色骨架（直接對應常規坐標，不進行任何水平翻轉） ===
+// === 畫出綠色骨架與關節線條 ===
 function drawSkeleton(keypoints) {
   stroke(0, 255, 0);
   strokeWeight(2.5);
   fill(0, 255, 0);
 
-  // 1. 畫出 21 個關鍵點
+  // 1. 畫出 21 個圓點關節
   for (let i = 0; i < keypoints.length; i++) {
     circle(keypoints[i].x, keypoints[i].y, 7);
   }
 
-  // 2. 五指連線
+  // 2. 依序將五根手指的關鍵點相連
   let fingers = [
     [0, 1, 2, 3, 4],     // 大拇指
     [0, 5, 6, 7, 8],     // 食指
@@ -161,13 +161,13 @@ function drawSkeleton(keypoints) {
   }
 }
 
-// === 基於指尖與關節高度的手勢判定 ===
+// === 猜拳動作演算法判斷 ===
 function judgeGesture(keypoints) {
-  // 比較 Y 軸（指尖比第二關節高即為伸直）
-  let indexIsOpen = keypoints[8].y < keypoints[6].y;
-  let middleIsOpen = keypoints[12].y < keypoints[10].y;
-  let ringIsOpen = keypoints[16].y < keypoints[14].y;
-  let pinkyIsOpen = keypoints[20].y < keypoints[18].y;
+  // 網頁 Y 軸向下，所以指尖的 Y 軸數值小於關節的 Y 軸數值，即代表手指朝上伸直
+  let indexIsOpen = keypoints[8].y < keypoints[6].y;   // 食指是否開
+  let middleIsOpen = keypoints[12].y < keypoints[10].y; // 中指是否開
+  let ringIsOpen = keypoints[16].y < keypoints[14].y;   // 無名指是否開
+  let pinkyIsOpen = keypoints[20].y < keypoints[18].y;  // 小拇指是否開
 
   if (!indexIsOpen && !middleIsOpen && !ringIsOpen && !pinkyIsOpen) {
     return "石頭";
@@ -179,7 +179,7 @@ function judgeGesture(keypoints) {
   return "未知";
 }
 
-// === 右上角半透明黑底計分板 ===
+// === 畫右上角半透明黑底計分板 ===
 function drawScoreboard() {
   fill(0, 0, 0, 160);
   noStroke();
@@ -196,18 +196,18 @@ function drawScoreboard() {
   text(`❌ ${loseCount} 敗`, width - 85, 35);
 }
 
-// === 帶有文字陰影效果的 UI 文字繪製 ===
+// === 輔助功能：繪製帶有黑色陰影的文字（防止與視訊背景混在一起） ===
 function drawOverlayText(txt, x, y, size, col, align = CENTER) {
   textAlign(align, CENTER);
   textSize(size);
   textStyle(BOLD);
   noStroke();
   
-  // 黑色陰影
+  // 畫陰影
   fill(0, 0, 0, 220);
   text(txt, x + 2, y + 2);
   
-  // 主色文字
+  // 畫主要文字
   fill(col);
   text(txt, x, y);
 }
