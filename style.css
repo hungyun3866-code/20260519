@@ -1,37 +1,15 @@
-* {
+html, body {
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  background: linear-gradient(135deg, #0d0d1a 0%, #1a1040 50%, #0a1520 100%);
-  min-height: 100vh;
+  background-color: #eddcd2; /* 溫柔的莫蘭迪米膚色背景 */
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
-  font-family: Arial, sans-serif;
-}
-
-#wrap {
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 0 80px rgba(80, 160, 255, .18), 0 0 0 1px rgba(255, 255, 255, .08);
+  align-items: center;
+  height: 100vh;
+  font-family: sans-serif;
 }
 
 canvas {
-  display: block;
-}
-
-video {
-  display: none;
-}
-
-#footer {
-  margin-top: 10px;
-  color: rgba(255, 255, 255, .28);
-  font-size: 12px;
-  letter-spacing: .5px;
-  text-align: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08); /* 淡淡的陰影增加立體感 */
+  border-radius: 8px;
 }
