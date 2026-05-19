@@ -3,7 +3,7 @@ let handpose;
 let predictions = [];
 
 // 遊戲狀態變數
-let gameState = "START"; // START: 提示伸手, COUNTDOWN: 倒數, RESULT: 顯示結果
+let gameState = "START"; 
 let timerStart = 0;
 let playerGesture = "未知";
 let computerGesture = "";
@@ -14,53 +14,53 @@ let loseCount = 0;
 function setup() {
   createCanvas(640, 480);
   
-  // 初始化視訊鏡頭
-  video = createCapture(VIDEO);
-  video.size(640, 480);
-  video.hide(); // 隱藏原生 HTML 影片，由 p5 畫在畫布上
-
-  // 初始化 ml5.js 的 Handpose 模型
-  handpose = ml5.handpose(video, modelReady);
-  
-  // 監聽辨識結果
-  handpose.on("predict", results => {
-    predictions = results;
+  // 關鍵改動：確保鏡頭串流完全建立後（觸發 Callback），才初始化 handpose
+  video = createCapture(VIDEO, function(stream) {
+    console.log("鏡頭串流建立成功，開始載入 AI 模型...");
+    handpose = ml5.handpose(video, modelReady);
+    
+    // 監聽辨識結果
+    handpose.on("predict", results => {
+      predictions = results;
+    });
   });
+  
+  video.size(640, 480);
+  video.hide(); 
 }
 
 function modelReady() {
-  console.log("Handpose 模型載入成功！");
+  console.log("AI 手勢辨識模型已準備就緒！");
 }
 
 function draw() {
-  // 1. 鏡像翻轉視訊畫面（符合視覺直覺）
+  // 1. 鏡像翻轉視訊畫面
   translate(width, 0);
   scale(-1, 1);
   image(video, 0, 0, width, height);
   
-  // 2. 還原座標系，避免文字跟著鏡像顛倒
+  // 2. 還原座標系
   translate(width, 0);
   scale(-1, 1);
 
   // 3. 取得當前手勢並繪製骨架
   let currentGesture = "未知";
-  if (predictions.length > 0) {
+  if (predictions && predictions.length > 0) {
     let hand = predictions[0];
-    drawKeypoints(hand); // 畫出綠色網格
+    drawKeypoints(hand); 
     currentGesture = judgeGesture(hand.landmarks);
   }
 
   // 4. 渲染右上角計分板
   drawScoreboard();
 
-  // 5. 遊戲流程控制 (狀態機)
+  // 5. 遊戲流程控制
   let currentTime = millis();
 
   if (gameState === "START") {
     drawOverlayText("請將手伸入畫面", width / 2, height / 2, 32, color(255));
     drawOverlayText("比出 ✊ 石頭、🖐 布、✌ 剪刀", width / 2, height / 2 + 50, 20, color(200));
 
-    // 偵測到有效出拳，立即鎖定並進入倒數
     if (currentGesture === "石頭" || currentGesture === "剪刀" || currentGesture === "布") {
       gameState = "COUNTDOWN";
       timerStart = currentTime;
@@ -71,19 +71,16 @@ function draw() {
     let countdown = 3 - floor(elapsed);
 
     if (countdown > 0) {
-      // 顯示黃色大數字倒數
       drawOverlayText(countdown, width / 2, height / 2, 90, color(255, 215, 0));
       if (currentGesture !== "未知") {
         drawOverlayText(`你當前出：${currentGesture}`, 30, 50, 24, color(255), LEFT);
       }
     } else {
-      // 倒數 3 秒結束，定生死
       playerGesture = currentGesture;
       if (playerGesture !== "未知") {
         let options = ["石頭", "剪刀", "布"];
         computerGesture = random(options);
 
-        // 勝負邏輯判定
         if (playerGesture === computerGesture) {
           resultText = "平手！";
         } else if (
@@ -106,13 +103,11 @@ function draw() {
     }
 
   } else if (gameState === "RESULT") {
-    // 依據勝負改變顏色
     let textColor = resultText.includes("贏") ? color(0, 255, 0) : (resultText.includes("輸") ? color(255, 0, 0) : color(255));
     
     drawOverlayText(resultText, width / 2, height / 2 - 40, 48, textColor);
     drawOverlayText(`你：${playerGesture}  vs  電腦：${computerGesture}`, width / 2, height / 2 + 30, 24, color(255));
 
-    // 結果停留在畫面上 3 秒後自動重啟
     if ((currentTime - timerStart) / 1000 > 3) {
       gameState = "START";
     }
@@ -121,41 +116,44 @@ function draw() {
 
 // 畫出綠色手部關節與骨架連線
 function drawKeypoints(hand) {
+  if (!hand || !hand.landmarks) return;
+  
   stroke(0, 255, 0);
   strokeWeight(2);
   fill(0, 255, 0);
 
-  // 繪製 21 個關鍵點 (需做 w - x 的鏡像處理)
   for (let i = 0; i < hand.landmarks.length; i++) {
     let x = width - hand.landmarks[i][0];
     let y = hand.landmarks[i][1];
     ellipse(x, y, 6, 6);
   }
 
-  // 骨架連線定義 (五根手指)
   let fingers = [
-    [0, 1, 2, 3, 4],     // 大拇指
-    [0, 5, 6, 7, 8],     // 食指
-    [0, 9, 10, 11, 12],  // 中指
-    [0, 13, 14, 15, 16], // 無名指
-    [0, 17, 18, 19, 20]  // 小拇指
+    [0, 1, 2, 3, 4],     
+    [0, 5, 6, 7, 8],     
+    [0, 9, 10, 11, 12],  
+    [0, 13, 14, 15, 16], 
+    [0, 17, 18, 19, 20]  
   ];
   
   noFill();
   for (let f of fingers) {
     beginShape();
     for (let id of f) {
-      let x = width - hand.landmarks[id][0];
-      let y = hand.landmarks[id][1];
-      vertex(x, y);
+      if (hand.landmarks[id]) {
+        let x = width - hand.landmarks[id][0];
+        let y = hand.landmarks[id][1];
+        vertex(x, y);
+      }
     }
     endShape();
   }
 }
 
-// 根據 MediaPipe 節點高度判斷手勢
+// 手勢判斷
 function judgeGesture(landmarks) {
-  // 比較指尖與核心關節的 Y 軸位置（注意：畫布 Y 軸越往下數值越大）
+  if (!landmarks) return "未知";
+  
   let indexIsOpen = landmarks[8][1] < landmarks[6][1];
   let middleIsOpen = landmarks[12][1] < landmarks[10][1];
   let ringIsOpen = landmarks[16][1] < landmarks[14][1];
@@ -171,7 +169,7 @@ function judgeGesture(landmarks) {
   return "未知";
 }
 
-// 繪製右上角計分板
+// 計分板
 function drawScoreboard() {
   fill(0, 0, 0, 160);
   noStroke();
@@ -188,18 +186,16 @@ function drawScoreboard() {
   text(`❌ ${loseCount} 敗`, width - 85, 35);
 }
 
-// 輔助函式：繪製有黑色陰影的文字，避免背景干擾看不清
+// 文字渲染
 function drawOverlayText(txt, x, y, size, col, align = CENTER) {
   textAlign(align, CENTER);
   textSize(size);
   textStyle(BOLD);
   noStroke();
   
-  // 渲染陰影
   fill(0, 0, 0, 220);
   text(txt, x + 2, y + 2);
   
-  // 渲染主文字
   fill(col);
   text(txt, x, y);
 }
